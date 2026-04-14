@@ -12,11 +12,10 @@ Next we can start connecting their tenure at different companies to the attribut
 
 So for example if Mr. Smith was President of Company A from March 2020-June 2023, and then was CEO of Company B from July 2023-February 2025, and we select stock price, then we see the stock price of Company A March 2020-June 2023, and the stock price of Company B from July 2023-February 2025. All of this is displayed on an easy to read unified timeline.
 
-
 ## Status
 
 Project just created. Run `/build_my_app` in Cursor to start building.
 
 ## Modules
 
-*None yet — the agent will populate this as features are built.*
+_None yet — the agent will populate this as features are built._
