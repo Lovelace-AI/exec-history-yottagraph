@@ -14,8 +14,38 @@ So for example if Mr. Smith was President of Company A from March 2020-June 2023
 
 ## Status
 
-Project just created. Run `/build_my_app` in Cursor to start building.
+Initial app build complete. Core features implemented:
+
+- **Company search**: Autocomplete search for public companies via Elemental API
+- **Officer list**: Displays officers and directors for a selected company with filtering
+- **Employment timeline**: Shows linked organizations for a selected executive as colored bars
+- **Metric overlay**: D3-based chart showing stock prices, revenue, net income, assets, liabilities, and equity across the executive's companies
+
+### Data Notes
+
+- Officer/director relationships come from SEC Forms 3/4 (`is_officer`, `is_director`, `works_at`, `head_of`, `employed_by`)
+- Employment tenure dates are not yet available in the knowledge graph; bars show known linked orgs without precise date ranges
+- Stock price data uses the MCP `get_daily_stock_prices` endpoint or gateway proxy
+- Financial metrics (revenue, net income, etc.) come from XBRL/EDGAR filings via `getPropertyValues`
 
 ## Modules
 
-_None yet — the agent will populate this as features are built._
+### `composables/useExecutiveData.ts`
+
+Central composable managing app state and data fetching. Handles company search, officer discovery via graph traversal (`linked` expression), employment history via property relationships, and metric data for stock prices and financial fundamentals.
+
+### `components/CompanySearch.vue`
+
+Debounced autocomplete search using `searchEntities()` helper. Filters to organization flavor only.
+
+### `components/OfficerList.vue`
+
+Filterable list of officers/directors for the selected company. Supports name/title filtering when the list is long.
+
+### `components/EmploymentTimeline.vue`
+
+Horizontal colored bars showing each organization the executive is linked to, with role chips.
+
+### `components/MetricOverlay.vue`
+
+D3 line chart with area fill, rendering time-series data for a selected metric across the executive's companies. Supports stock price, revenue, net income, total assets, total liabilities, and shareholders' equity.
