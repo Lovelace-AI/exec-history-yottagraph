@@ -61,11 +61,8 @@ const PID_JOB_TITLE = 209;
 const PID_IS_OFFICER = 188;
 const PID_IS_DIRECTOR = 187;
 const PID_WORKS_AT = 110;
-const PID_FILING_REFERENCE = 232;
 const PID_FILING_DATE = 177;
-const PID_FORM_TYPE = 179;
 const PID_TICKER = 169;
-const PID_ISSUED_BY = 200;
 
 const FLAVOR_PERSON = 9;
 const FLAVOR_ORG = 10;
@@ -158,27 +155,27 @@ export function useExecutiveHistory() {
     }
 
     async function getEmploymentTimeline(personNeid: string): Promise<TenureRecord[]> {
-        const linkedExpr = JSON.stringify({
-            type: 'and',
-            and: [
-                {
-                    type: 'linked',
-                    linked: {
-                        to_entity: personNeid,
-                        distance: 1,
-                        pids: [PID_WORKS_AT, PID_IS_OFFICER, PID_IS_DIRECTOR],
-                        direction: 'both',
-                    },
-                },
-                { type: 'is_type', is_type: { fid: FLAVOR_ORG } },
-            ],
+        const relRes = await client.getPropertyValues({
+            eids: JSON.stringify([personNeid]),
+            pids: JSON.stringify([PID_IS_OFFICER, PID_IS_DIRECTOR, PID_WORKS_AT]),
         });
 
-        const orgRes = await client.findEntities({
-            expression: linkedExpr,
-            limit: 30,
-        });
-        const orgNeids: string[] = (orgRes as any).eids ?? [];
+        const orgDates = new Map<string, { earliest: string; latest: string }>();
+        for (const v of (relRes as any).values ?? []) {
+            const orgNeid = padNeid(v.value);
+            const date = v.recorded_at?.slice(0, 10) ?? '';
+            if (!date) continue;
+
+            if (!orgDates.has(orgNeid)) {
+                orgDates.set(orgNeid, { earliest: date, latest: date });
+            } else {
+                const rec = orgDates.get(orgNeid)!;
+                if (date < rec.earliest) rec.earliest = date;
+                if (date > rec.latest) rec.latest = date;
+            }
+        }
+
+        const orgNeids = [...orgDates.keys()];
         if (!orgNeids.length) return [];
 
         const orgNames = await Promise.all(
@@ -202,87 +199,38 @@ export function useExecutiveHistory() {
             if (!tickerMap.has(eid)) tickerMap.set(eid, v.value as string);
         }
 
-        const filingRefRes = await client.getPropertyValues({
-            eids: JSON.stringify([personNeid]),
-            pids: JSON.stringify([PID_FILING_REFERENCE]),
-        });
-
-        const filingNeids: string[] = [
-            ...new Set(((filingRefRes as any).values ?? []).map((v: any) => padNeid(v.value))),
-        ];
-
-        let filingDateMap = new Map<string, { date: string; issuedBy: string; formType: string }>();
-
-        if (filingNeids.length > 0) {
-            const batchSize = 50;
-            for (let i = 0; i < filingNeids.length; i += batchSize) {
-                const batch = filingNeids.slice(i, i + batchSize);
-                const filingProps = await client.getPropertyValues({
-                    eids: JSON.stringify(batch),
-                    pids: JSON.stringify([PID_FILING_DATE, PID_ISSUED_BY, PID_FORM_TYPE]),
-                });
-
-                for (const v of (filingProps as any).values ?? []) {
-                    const eid = padNeid(v.eid ?? v.entity_id ?? '');
-                    if (!filingDateMap.has(eid)) {
-                        filingDateMap.set(eid, {
-                            date: '',
-                            issuedBy: '',
-                            formType: '',
-                        });
-                    }
-                    const entry = filingDateMap.get(eid)!;
-                    if (v.pid === PID_FILING_DATE && !entry.date) entry.date = v.value as string;
-                    if (v.pid === PID_ISSUED_BY && !entry.issuedBy)
-                        entry.issuedBy = padNeid(v.value);
-                    if (v.pid === PID_FORM_TYPE && !entry.formType)
-                        entry.formType = v.value as string;
-                }
-            }
-        }
-
-        const orgFilings = new Map<string, { earliest: string; latest: string; title: string }>();
-
-        for (const [, filing] of filingDateMap) {
-            if (!filing.date || !filing.issuedBy) continue;
-            const org = filing.issuedBy;
-            if (!orgNeids.includes(org)) continue;
-
-            if (!orgFilings.has(org)) {
-                orgFilings.set(org, {
-                    earliest: filing.date,
-                    latest: filing.date,
-                    title: '',
-                });
-            }
-            const rec = orgFilings.get(org)!;
-            if (filing.date < rec.earliest) rec.earliest = filing.date;
-            if (filing.date > rec.latest) rec.latest = filing.date;
-        }
-
         const personTitleRes = await client.getPropertyValues({
             eids: JSON.stringify([personNeid]),
             pids: JSON.stringify([PID_JOB_TITLE]),
         });
 
-        const personTitles: string[] = [
-            ...new Set(((personTitleRes as any).values ?? []).map((v: any) => v.value as string)),
-        ];
-        const primaryTitle = personTitles[0] ?? 'Officer';
+        const titlesByOrg = new Map<string, string>();
+        for (const v of (personTitleRes as any).values ?? []) {
+            const title = v.value as string;
+            if (!title) continue;
+            const efid = String(v.efid ?? '');
+            for (const relVal of (relRes as any).values ?? []) {
+                if (String(relVal.efid ?? '') === efid) {
+                    const orgNeid = padNeid(relVal.value);
+                    if (!titlesByOrg.has(orgNeid)) titlesByOrg.set(orgNeid, title);
+                    break;
+                }
+            }
+        }
 
-        const tenures: TenureRecord[] = orgNeids.map((neid, i) => {
-            const filingData = orgFilings.get(neid);
+        const fallbackTitle = ((personTitleRes as any).values ?? [])[0]?.value ?? 'Officer';
+
+        return orgNeids.map((neid, i) => {
+            const dates = orgDates.get(neid)!;
             return {
                 orgNeid: neid,
                 orgName: orgNames[i],
                 ticker: tickerMap.get(neid) ?? null,
-                jobTitle: primaryTitle,
-                earliestFiling: filingData?.earliest ?? '',
-                latestFiling: filingData?.latest ?? '',
+                jobTitle: titlesByOrg.get(neid) ?? fallbackTitle,
+                earliestFiling: dates.earliest,
+                latestFiling: dates.latest,
             };
         });
-
-        return tenures.filter((t) => t.earliestFiling || t.latestFiling);
     }
 
     async function getFinancialMetrics(

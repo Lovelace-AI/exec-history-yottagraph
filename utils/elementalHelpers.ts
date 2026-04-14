@@ -61,13 +61,15 @@ export async function searchEntities(
     options?: { maxResults?: number; flavors?: string[]; includeNames?: boolean }
 ): Promise<{ neid: string; name: string; score?: number }[]> {
     const url = buildGatewayUrl('entities/search');
+    const queryObj: Record<string, any> = { queryId: 1, query };
+    if (options?.flavors?.length) queryObj.flavors = options.flavors;
+
     const res = await $fetch<any>(url, {
         method: 'POST',
         headers: gatewayHeaders(),
         body: {
-            queries: [{ queryId: 1, query }],
+            queries: [queryObj],
             maxResults: options?.maxResults ?? 10,
-            flavors: options?.flavors,
             includeNames: options?.includeNames ?? true,
         },
     });
