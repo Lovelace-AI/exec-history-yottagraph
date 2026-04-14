@@ -1,46 +1,78 @@
 <template>
-    <div class="home-page">
-        <div class="home-content">
-            <div class="hero-section">
-                <img src="/LL-logo-full-wht.svg" alt="Lovelace" class="hero-logo" />
-                <h1 class="hero-title">{{ appName || 'Welcome to Aether' }}</h1>
-                <p class="hero-subtitle">Your AI-powered workspace is ready.</p>
+    <div class="d-flex flex-column fill-height">
+        <div class="flex-shrink-0 pa-4 pb-0">
+            <div class="d-flex align-center mb-4">
+                <v-icon size="28" color="primary" class="mr-3">mdi-account-tie</v-icon>
+                <div>
+                    <h1 class="text-h5 font-weight-medium">Executive History</h1>
+                    <p class="text-body-2 text-medium-emphasis mb-0">
+                        Track executive tenure and company performance
+                    </p>
+                </div>
             </div>
 
-            <div class="getting-started">
-                <h2 class="section-title">Getting Started</h2>
-                <div class="steps-grid">
-                    <div class="step-item">
-                        <span class="step-number">1</span>
-                        <div>
-                            <div class="step-title">Describe what you want</div>
-                            <div class="step-desc">
-                                Edit <code>DESIGN.md</code> with your project vision. The AI agent
-                                reads this first to understand what to build.
-                            </div>
-                        </div>
+            <CompanySearch @selected="onCompanySelected" />
+        </div>
+
+        <div class="flex-grow-1 overflow-y-auto pa-4">
+            <template v-if="selectedCompany">
+                <v-card class="mb-4 pa-4">
+                    <div class="d-flex align-center mb-1">
+                        <v-icon size="18" class="mr-2">mdi-domain</v-icon>
+                        <span class="text-h6">{{ selectedCompany.name }}</span>
                     </div>
-                    <div class="step-item">
-                        <span class="step-number">2</span>
-                        <div>
-                            <div class="step-title">Build it</div>
-                            <div class="step-desc">
-                                Run <code>/build_my_app</code> in Cursor. The agent will design and
-                                implement your app based on the brief.
-                            </div>
+                </v-card>
+
+                <v-card class="mb-4 pa-4">
+                    <OfficerList
+                        :officers="officers"
+                        :loading="officersLoading"
+                        :error="officersError"
+                        :selected-neid="selectedOfficer?.neid ?? null"
+                        @select="onOfficerSelected"
+                    />
+                </v-card>
+
+                <template v-if="selectedOfficer">
+                    <v-card class="mb-4 pa-4">
+                        <div class="d-flex align-center mb-3">
+                            <v-icon size="20" class="mr-2" color="primary">mdi-account</v-icon>
+                            <span class="text-subtitle-1 font-weight-medium">{{
+                                selectedOfficer.name
+                            }}</span>
+                            <v-chip class="ml-2" color="primary" size="small">
+                                {{ selectedOfficer.jobTitle }}
+                            </v-chip>
                         </div>
-                    </div>
-                    <div class="step-item">
-                        <span class="step-number">3</span>
-                        <div>
-                            <div class="step-title">Deploy</div>
-                            <div class="step-desc">
-                                Push to main to auto-deploy on Vercel. Use
-                                <code>/deploy_agent</code> or <code>/deploy_mcp</code> for backend
-                                services.
-                            </div>
-                        </div>
-                    </div>
+
+                        <TenureTimeline
+                            :tenures="tenures"
+                            :loading="tenureLoading"
+                            :error="tenureError"
+                        />
+                    </v-card>
+
+                    <v-card v-if="tenures.length > 0" class="mb-4 pa-4">
+                        <MetricOverlay
+                            v-model:metric="selectedMetric"
+                            :tenures="tenures"
+                            :loading="metricsLoading"
+                            :metrics-data="metricsData"
+                        />
+                    </v-card>
+                </template>
+            </template>
+
+            <div v-else class="d-flex justify-center align-center" style="min-height: 300px">
+                <div class="text-center">
+                    <v-icon size="64" color="primary" class="mb-4" style="opacity: 0.3">
+                        mdi-account-search
+                    </v-icon>
+                    <h2 class="text-h6 text-medium-emphasis mb-2">Search for a company to begin</h2>
+                    <p class="text-body-2 text-medium-emphasis" style="max-width: 400px">
+                        Enter a company name above to explore its executives, their employment
+                        history, and how company metrics changed during their tenure.
+                    </p>
                 </div>
             </div>
         </div>
@@ -48,103 +80,90 @@
 </template>
 
 <script setup lang="ts">
-    const { appName } = useAppInfo();
+    import type {
+        Officer,
+        TenureRecord,
+        FinancialDataPoint,
+    } from '~/composables/useExecutiveHistory';
+
+    type MetricKey =
+        | 'total_revenue'
+        | 'net_income'
+        | 'total_assets'
+        | 'total_liabilities'
+        | 'shares_outstanding';
+
+    const { getOfficers, getEmploymentTimeline, getFinancialMetrics } = useExecutiveHistory();
+
+    const selectedCompany = ref<{ neid: string; name: string } | null>(null);
+    const officers = ref<Officer[]>([]);
+    const officersLoading = ref(false);
+    const officersError = ref<string | null>(null);
+
+    const selectedOfficer = ref<Officer | null>(null);
+    const tenures = ref<TenureRecord[]>([]);
+    const tenureLoading = ref(false);
+    const tenureError = ref<string | null>(null);
+
+    const selectedMetric = ref<MetricKey>('total_revenue');
+    const metricsData = ref<Map<string, FinancialDataPoint[]>>(new Map());
+    const metricsLoading = ref(false);
+
+    async function onCompanySelected(company: { neid: string; name: string }) {
+        selectedCompany.value = company;
+        selectedOfficer.value = null;
+        tenures.value = [];
+        metricsData.value = new Map();
+
+        officersLoading.value = true;
+        officersError.value = null;
+        try {
+            officers.value = await getOfficers(company.neid);
+        } catch (e: any) {
+            officersError.value = e.message || 'Failed to load officers';
+            officers.value = [];
+        } finally {
+            officersLoading.value = false;
+        }
+    }
+
+    async function onOfficerSelected(officer: Officer) {
+        selectedOfficer.value = officer;
+        metricsData.value = new Map();
+
+        tenureLoading.value = true;
+        tenureError.value = null;
+        try {
+            tenures.value = await getEmploymentTimeline(officer.neid);
+        } catch (e: any) {
+            tenureError.value = e.message || 'Failed to load employment history';
+            tenures.value = [];
+        } finally {
+            tenureLoading.value = false;
+        }
+
+        if (tenures.value.length) {
+            loadMetrics();
+        }
+    }
+
+    async function loadMetrics() {
+        const orgNeids = tenures.value.map((t) => t.orgNeid);
+        if (!orgNeids.length) return;
+
+        metricsLoading.value = true;
+        try {
+            metricsData.value = await getFinancialMetrics(orgNeids, selectedMetric.value);
+        } catch {
+            metricsData.value = new Map();
+        } finally {
+            metricsLoading.value = false;
+        }
+    }
+
+    watch(selectedMetric, () => {
+        if (tenures.value.length) {
+            loadMetrics();
+        }
+    });
 </script>
-
-<style scoped>
-    .home-page {
-        height: 100%;
-        overflow-y: auto;
-        display: flex;
-        justify-content: center;
-        padding: 48px 24px;
-    }
-
-    .home-content {
-        max-width: 720px;
-        width: 100%;
-    }
-
-    .hero-section {
-        text-align: center;
-        margin-bottom: 48px;
-    }
-
-    .hero-logo {
-        height: 2rem;
-        width: auto;
-        margin-bottom: 24px;
-        opacity: 0.6;
-    }
-
-    .hero-title {
-        font-family: var(--font-headline);
-        font-weight: 400;
-        font-size: 2rem;
-        letter-spacing: 0.02em;
-        margin-bottom: 8px;
-    }
-
-    .hero-subtitle {
-        color: var(--lv-silver);
-        font-size: 1.1rem;
-    }
-
-    .getting-started {
-        margin-bottom: 48px;
-    }
-
-    .section-title {
-        font-family: var(--font-headline);
-        font-weight: 400;
-        font-size: 1.1rem;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        color: var(--lv-silver);
-        margin-bottom: 20px;
-    }
-
-    .steps-grid {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-    }
-
-    .step-item {
-        display: flex;
-        gap: 16px;
-        align-items: flex-start;
-    }
-
-    .step-number {
-        flex-shrink: 0;
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        background: var(--lv-surface);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: var(--font-mono);
-        font-size: 0.8rem;
-        color: var(--lv-green);
-        margin-top: 2px;
-    }
-
-    .step-title {
-        font-weight: 500;
-        margin-bottom: 2px;
-    }
-
-    .step-desc {
-        color: var(--lv-silver);
-        font-size: 0.875rem;
-        line-height: 1.4;
-    }
-
-    .step-desc code {
-        font-size: 0.85em;
-        padding: 1px 5px;
-    }
-</style>
